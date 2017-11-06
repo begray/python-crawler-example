@@ -15,8 +15,8 @@ from urlparse import urlparse, urlunparse, urljoin
 
 OUTPUT_DIR = 'output'
 
+pending_links = []
 visited_links = set()
-pending_links = set()
 crawlin_links = set()
 
 
@@ -43,7 +43,8 @@ def download_and_save(url):
     with open(os.path.join(OUTPUT_DIR, *parts), 'w') as output_file:
         output_file.write(page)
 
-    # print('%s - written to disk: %s' % (threading.currentThread(), request.get_full_url()))
+    # print('%s' % (threading.currentThread()))
+    # print('written to disk: %s' % (request.get_full_url()))
 
     return page
 
@@ -71,7 +72,7 @@ def drop_params(url):
 
 def same_host(url1, url2):
     """
-    Are this two URLs point to the same host?
+    Are this two URLs pointing to the same host?
     """
     return urlparse(url1)[1] == urlparse(url2)[1]
 
@@ -90,16 +91,15 @@ def crawl_one(url):
 
     # print('%s - links crawled: %s' % (threading.currentThread(), links))
 
-    new_links = set(
-        filter(
-            lambda l: same_host(url, l),
-            (drop_params(link) for link in links if is_new_link(url, drop_params(link)))
-        )
-    )
+    new_links = set(filter(
+        lambda l: same_host(url, l),
+        (drop_params(link) for link in links if is_new_link(url, drop_params(link)))
+    ))
+    new_links = sorted(new_links)
 
     # print('%s - new links: %s' % (threading.currentThread(), new_links))
 
-    pending_links.update(new_links)
+    pending_links.extend(new_links)
 
     visited_links.add(url)
     crawlin_links.remove(url)
@@ -118,7 +118,7 @@ def crawl(start_url, concurrency_level, visited_link_limit):
     print('concurrency level: %s, visited link limit: %s' % (concurrency_level, visited_link_limit))
 
     # init our pending links with start_url
-    pending_links.update([start_url])
+    pending_links.append(start_url)
 
     pool = gevent.pool.Pool(concurrency_level)
 
@@ -129,8 +129,10 @@ def crawl(start_url, concurrency_level, visited_link_limit):
             pool.join()
             continue
 
-        link = pending_links.pop()
+        link = pending_links.pop(0)
         crawlin_links.add(link)
+
+        pool.wait_available()
         pool.add(gevent.spawn(crawl_one, link))
 
         # print('%s - current visited: %s' % (threading.currentThread(), visited_links))
@@ -139,6 +141,8 @@ def crawl(start_url, concurrency_level, visited_link_limit):
 
     # print('%s - visited links: %s' % (threading.currentThread(), visited_links))
     # print('%s - pending links: %s' % (threading.currentThread(), pending_links))
+
+    print('Done. %s links visited.' % len(visited_links))
 
 
 if __name__ == '__main__':
